@@ -22,7 +22,7 @@ pip install -r requirements.txt
 ELASTICPATH_CLIENT_SECRET=
 ELASTICPATH_CLIENT_ID=
 ```
-Вам также необходимо задать время жизни токена, на текущий момент в [документации](https://documentation.elasticpath.com/commerce-cloud/docs/api/basics/authentication/index.html#:~:text=Authentication%20tokens%20are%20generated%20via%20the%20authentication%20endpoint%20and%20expire%20within%201%20hour.%20They%20need%20to%20be%20then%20regenerated.) указано, что время жизни `токена` равно `1 часу`. Поэтому укажите время `в секундах равное 1 часу` или менее:
+Вам также необходимо задать время жизни токена доступа к магазину, который автоматически будет получать бот в процессе своей работы, на текущий момент в [документации](https://documentation.elasticpath.com/commerce-cloud/docs/api/basics/authentication/index.html#:~:text=Authentication%20tokens%20are%20generated%20via%20the%20authentication%20endpoint%20and%20expire%20within%201%20hour.%20They%20need%20to%20be%20then%20regenerated.) указано, что время жизни `токена` равно `1 часу`. Поэтому укажите время `в секундах равное 1 часу` или менее:
 ```
 TOKEN_LIFETIME=
 ```
