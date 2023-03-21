@@ -32,7 +32,7 @@ def parse_products(raw_products: list, inventories: list) -> dict:
     return products
 
 
-def get_menu_button(products: dict) -> list:
+def get_menu_buttons(products: dict) -> list:
     keyboard = []
     for product_id, product in products.items():
         button = [
@@ -43,7 +43,7 @@ def get_menu_button(products: dict) -> list:
     return keyboard
 
 
-def prepare_message_and_buttons_for_cart(user_cart):
+def prepare_cart_buttons_and_message(user_cart):
     products = user_cart.get('data')
     message = ''
     keyboard = []
@@ -85,7 +85,7 @@ def start(update: Update, context: CallbackContext) -> str:
     store_access_token = context.bot_data['store_access_token']
     raw_products, inventories = get_products(store_access_token)
     products = parse_products(raw_products, inventories)
-    keyboard = get_menu_button(products)
+    keyboard = get_menu_buttons(products)
     reply_markup = InlineKeyboardMarkup(keyboard)
     update.message.reply_text(text='Пожалуйста, выберите товар!',
                               reply_markup=reply_markup)
@@ -102,7 +102,7 @@ def handle_menu(update: Update, context: CallbackContext) -> str:
     store_access_token = context.bot_data['store_access_token']
     if user_reply == 'Корзина':
         user_cart = get_user_cart(store_access_token, chat_id)
-        message, reply_markup = prepare_message_and_buttons_for_cart(user_cart)
+        message, reply_markup = prepare_cart_buttons_and_message(user_cart)
         bot.send_message(chat_id=chat_id, text=message,
                          reply_markup=reply_markup)
         bot.delete_message(chat_id=chat_id,
@@ -155,7 +155,7 @@ def handle_description(update: Update, context: CallbackContext) -> str:
         return 'HANDLE_DESCRIPTION'
     elif user_reply == 'Корзина':
         user_cart = get_user_cart(store_access_token, chat_id)
-        message, reply_markup = prepare_message_and_buttons_for_cart(user_cart)
+        message, reply_markup = prepare_cart_buttons_and_message(user_cart)
         bot.send_message(chat_id=chat_id, text=message,
                          reply_markup=reply_markup)
         bot.delete_message(chat_id=chat_id,
@@ -164,7 +164,7 @@ def handle_description(update: Update, context: CallbackContext) -> str:
     else:
         raw_products, inventories = get_products(store_access_token)
         products = parse_products(raw_products, inventories)
-        keyboard = get_menu_button(products)
+        keyboard = get_menu_buttons(products)
         reply_markup = InlineKeyboardMarkup(keyboard)
         bot.send_message(text='Пожалуйста, выберите товар!', chat_id=chat_id,
                          reply_markup=reply_markup)
@@ -185,7 +185,7 @@ def handle_cart(update: Update, context: CallbackContext) -> str:
         product_id = user_reply[4::]
         delete_cart_product(store_access_token, chat_id, product_id)
         user_cart = get_user_cart(store_access_token, chat_id)
-        message, reply_markup = prepare_message_and_buttons_for_cart(user_cart)
+        message, reply_markup = prepare_cart_buttons_and_message(user_cart)
         bot.send_message(chat_id=chat_id, text=message,
                          reply_markup=reply_markup)
         bot.delete_message(chat_id=chat_id,
@@ -194,7 +194,7 @@ def handle_cart(update: Update, context: CallbackContext) -> str:
     elif user_reply == 'В меню':
         raw_products, inventories = get_products(store_access_token)
         products = parse_products(raw_products, inventories)
-        keyboard = get_menu_button(products)
+        keyboard = get_menu_buttons(products)
         reply_markup = InlineKeyboardMarkup(keyboard)
         bot.send_message(text='Пожалуйста, выберите товар!',
                          chat_id=chat_id, reply_markup=reply_markup)
@@ -234,7 +234,7 @@ def waiting_email(update: Update, context: CallbackContext) -> str:
         delete_all_cart_products(store_access_token, chat_id)
         raw_products, inventories = get_products(store_access_token)
         products = parse_products(raw_products, inventories)
-        keyboard = get_menu_button(products)
+        keyboard = get_menu_buttons(products)
         reply_markup = InlineKeyboardMarkup(keyboard)
         bot.send_message(text='Пожалуйста, выберите товар!', chat_id=chat_id,
                          reply_markup=reply_markup)
