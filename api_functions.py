@@ -39,13 +39,14 @@ def get_product_image(store_access_token: str, image_id: str):
 
 
 def put_product_in_cart(store_access_token: str, product_id: str,
-                        quantity: str, chat_id: int) -> None:
+                        quantity: str, chat_id: int) -> int:
     url = f'https://api.moltin.com/v2/carts/{chat_id}/items'
     headers = {'Authorization': f'Bearer {store_access_token}'}
     body = {"data": {'quantity': quantity, 'type': 'cart_item',
                      'id': product_id}}
     response = requests.post(url, headers=headers, json=body)
     response.raise_for_status()
+    return response.json()
 
 
 def get_user_cart(store_access_token: str, chat_id: int) -> dict:
