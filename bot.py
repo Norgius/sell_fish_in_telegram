@@ -8,9 +8,9 @@ from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Filters, Updater, CallbackContext
 from telegram.ext import CallbackQueryHandler, CommandHandler, MessageHandler
 
-from utils import (get_access_token, get_products, get_product_image,
-                   put_product_in_cart, get_user_cart, create_customer,
-                   delete_cart_product, delete_all_cart_products)
+from api_functions import (get_access_token, get_products, get_product_image,
+                           put_product_in_cart, get_user_cart, create_customer,
+                           delete_cart_product, delete_all_cart_products)
 
 logger = logging.getLogger(__name__)
 _database = None
@@ -43,87 +43,7 @@ def get_menu_button(products: dict) -> list:
     return keyboard
 
 
-def start(update: Update, context: CallbackContext) -> str:
-    products = context.bot_data['products']
-    keyboard = get_menu_button(products)
-    reply_markup = InlineKeyboardMarkup(keyboard)
-    update.message.reply_text(text='Пожалуйста, выберите товар!',
-                              reply_markup=reply_markup)
-    return 'HANDLE_MENU'
-
-
-def handle_menu(update: Update, context: CallbackContext) -> str:
-    bot = context.bot
-    query = update.callback_query
-    chat_id = query.message.chat_id
-    if query.data == 'Назад':
-        bot.delete_message(chat_id=query.message.chat_id,
-                           message_id=query.message.message_id)
-        return 'MENU'
-    product_id = context.bot_data['product_id']
-    product_data = context.bot_data['products'].get(product_id)
-    image_id = product_data.get('image_id')
-    store_access_token = context.bot_data['store_access_token']
-
-    image = get_product_image(store_access_token, image_id)
-    message = dedent(f'''
-    {product_data.get('name')}
-
-    {product_data.get('price'):.2f}$ за 1 кг
-    {product_data.get('stock')}кг на складе
-
-    {product_data.get('description')}
-    ''')
-    keyboard = [
-        [InlineKeyboardButton('1 кг', callback_data='1 кг'),
-         InlineKeyboardButton('5 кг', callback_data='5 кг'),
-         InlineKeyboardButton('10 кг', callback_data='10 кг')],
-        [InlineKeyboardButton('Корзина', callback_data='Корзина')],
-        [InlineKeyboardButton('Назад', callback_data='Назад')]
-    ]
-    reply_markup = InlineKeyboardMarkup(keyboard)
-    bot.delete_message(chat_id=chat_id,
-                       message_id=query.message.message_id)
-    bot.send_photo(chat_id=chat_id, photo=image, caption=message,
-                   reply_markup=reply_markup)
-    return 'HANDLE_DESCRIPTION'
-
-
-def handle_description(update: Update, context: CallbackContext) -> str:
-    bot = context.bot
-    query = update.callback_query
-    user_reply = query.data
-    chat_id = query.message.chat_id
-    if user_reply in ['1 кг', '5 кг', '10 кг']:
-        store_access_token = context.bot_data['store_access_token']
-        product_id = context.bot_data['product_id']
-        quantity = int(user_reply.split()[0])
-        put_product_in_cart(store_access_token, product_id,
-                            quantity, chat_id)
-        return 'HANDLE_DESCRIPTION'
-
-    products = context.bot_data['products']
-    keyboard = get_menu_button(products)
-    reply_markup = InlineKeyboardMarkup(keyboard)
-
-    bot.delete_message(chat_id=chat_id,
-                       message_id=query.message.message_id)
-    bot.send_message(text='Пожалуйста, выберите товар!', chat_id=chat_id,
-                     reply_markup=reply_markup)
-    return 'HANDLE_MENU'
-
-
-def handle_cart(update: Update, context: CallbackContext) -> str:
-    bot = context.bot
-    query = update.callback_query
-    chat_id = query.message.chat_id
-    user_reply = query.data
-    store_access_token = context.bot_data['store_access_token']
-    if user_reply.startswith('del_'):
-        product_id = user_reply[4::]
-        delete_cart_product(store_access_token, chat_id, product_id)
-
-    user_cart = get_user_cart(store_access_token, chat_id)
+def prepare_message_and_buttons_for_cart(user_cart):
     products = user_cart.get('data')
     message = ''
     keyboard = []
@@ -158,17 +78,137 @@ def handle_cart(update: Update, context: CallbackContext) -> str:
             [InlineKeyboardButton('Оплатить', callback_data='Оплатить')]
         )
     reply_markup = InlineKeyboardMarkup(keyboard)
+    return message, reply_markup
+
+
+def start(update: Update, context: CallbackContext) -> str:
+    products = context.bot_data['products']
+    keyboard = get_menu_button(products)
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    update.message.reply_text(text='Пожалуйста, выберите товар!',
+                              reply_markup=reply_markup)
+    return 'HANDLE_MENU'
+
+
+def handle_menu(update: Update, context: CallbackContext) -> str:
+    bot = context.bot
+    query = update.callback_query
+    if not query:
+        return 'HANDLE_MENU'
+    chat_id = query.message.chat_id
+    user_reply = query.data
+    store_access_token = context.bot_data['store_access_token']
+    if user_reply == 'Корзина':
+        user_cart = get_user_cart(store_access_token, chat_id)
+        message, reply_markup = prepare_message_and_buttons_for_cart(user_cart)
+        bot.delete_message(chat_id=chat_id,
+                           message_id=query.message.message_id)
+        bot.send_message(chat_id=chat_id, text=message,
+                         reply_markup=reply_markup)
+        return 'HANDLE_CART'
+    context.bot_data['product_id'] = user_reply
+    product_data = context.bot_data['products'].get(user_reply)
+    image_id = product_data.get('image_id')
+    store_access_token = context.bot_data['store_access_token']
+
+    image = get_product_image(store_access_token, image_id)
+    message = dedent(f'''
+    {product_data.get('name')}
+
+    {product_data.get('price'):.2f}$ за 1 кг
+    {product_data.get('stock')}кг на складе
+
+    {product_data.get('description')}
+    ''')
+    keyboard = [
+        [InlineKeyboardButton('1 кг', callback_data='1 кг'),
+         InlineKeyboardButton('5 кг', callback_data='5 кг'),
+         InlineKeyboardButton('10 кг', callback_data='10 кг')],
+        [InlineKeyboardButton('Корзина', callback_data='Корзина')],
+        [InlineKeyboardButton('Назад', callback_data='Назад')]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
     bot.delete_message(chat_id=chat_id,
                        message_id=query.message.message_id)
-    bot.send_message(chat_id=chat_id, text=message, reply_markup=reply_markup)
+    bot.send_photo(chat_id=chat_id, photo=image, caption=message,
+                   reply_markup=reply_markup)
     return 'HANDLE_DESCRIPTION'
+
+
+def handle_description(update: Update, context: CallbackContext) -> str:
+    bot = context.bot
+    query = update.callback_query
+    if not query:
+        return 'HANDLE_DESCRIPTION'
+    user_reply = query.data
+    chat_id = query.message.chat_id
+    store_access_token = context.bot_data['store_access_token']
+    products = context.bot_data['products']
+    if user_reply in ['1 кг', '5 кг', '10 кг']:
+        product_id = context.bot_data['product_id']
+        quantity = int(user_reply.split()[0])
+        put_product_in_cart(store_access_token, product_id,
+                            quantity, chat_id)
+        return 'HANDLE_DESCRIPTION'
+    elif user_reply == 'Корзина':
+        user_cart = get_user_cart(store_access_token, chat_id)
+        message, reply_markup = prepare_message_and_buttons_for_cart(user_cart)
+        bot.delete_message(chat_id=chat_id,
+                           message_id=query.message.message_id)
+        bot.send_message(chat_id=chat_id, text=message,
+                         reply_markup=reply_markup)
+        return 'HANDLE_CART'
+    else:
+        keyboard = get_menu_button(products)
+        reply_markup = InlineKeyboardMarkup(keyboard)
+
+        bot.delete_message(chat_id=chat_id,
+                           message_id=query.message.message_id)
+        bot.send_message(text='Пожалуйста, выберите товар!', chat_id=chat_id,
+                         reply_markup=reply_markup)
+        return 'HANDLE_MENU'
+
+
+def handle_cart(update: Update, context: CallbackContext) -> str:
+    bot = context.bot
+    query = update.callback_query
+    if not query:
+        return 'HANDLE_CART'
+    chat_id = query.message.chat_id
+    user_reply = query.data
+    store_access_token = context.bot_data['store_access_token']
+    if user_reply.startswith('del_'):
+        product_id = user_reply[4::]
+        delete_cart_product(store_access_token, chat_id, product_id)
+        user_cart = get_user_cart(store_access_token, chat_id)
+        message, reply_markup = prepare_message_and_buttons_for_cart(user_cart)
+        bot.delete_message(chat_id=chat_id,
+                           message_id=query.message.message_id)
+        bot.send_message(chat_id=chat_id, text=message,
+                         reply_markup=reply_markup)
+        return 'HANDLE_CART'
+    elif user_reply == 'В меню':
+        products = context.bot_data['products']
+        keyboard = get_menu_button(products)
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        bot.delete_message(chat_id=chat_id,
+                           message_id=query.message.message_id)
+        bot.send_message(text='Пожалуйста, выберите товар!',
+                         chat_id=chat_id, reply_markup=reply_markup)
+        return 'HANDLE_MENU'
+    else:
+        message = 'Пришлите, пожалуйста, ваш email'
+        bot.send_message(text=message, chat_id=query.message.chat_id)
+        return 'WAITING_EMAIL'
 
 
 def waiting_email(update: Update, context: CallbackContext) -> str:
     bot = context.bot
     query = update.callback_query
-    if query and query.data in ['Оплатить', 'Неверно']:
+    if query and query.data == 'Неверно':
         message = 'Пришлите, пожалуйста, ваш email'
+        bot.delete_message(chat_id=query.message.chat_id,
+                           message_id=query.message.message_id)
         bot.send_message(text=message, chat_id=query.message.chat_id)
         return 'WAITING_EMAIL'
     elif query and query.data == 'Верно':
@@ -178,7 +218,6 @@ def waiting_email(update: Update, context: CallbackContext) -> str:
         bot.delete_message(chat_id=chat_id,
                            message_id=query.message.message_id)
         bot.send_message(text='Ожидайте уведомление на почте', chat_id=chat_id)
-
         if not _database.get(f'customer_{chat_id}'):
             first_name = name if (name := query.from_user.first_name) else ''
             last_name = name if (name := query.from_user.last_name) else ''
@@ -237,18 +276,8 @@ def handle_users_reply(update: Update, context: CallbackContext) -> None:
         chat_id = update.callback_query.message.chat_id
     else:
         return
-
     if user_reply == '/start':
         user_state = 'START'
-    elif user_reply in products:
-        user_state = 'HANDLE_MENU'
-        context.bot_data['product_id'] = user_reply
-    elif user_reply in ['Назад', '1 кг', '5 кг', '10 кг']:
-        user_state = 'HANDLE_DESCRIPTION'
-    elif user_reply == 'Корзина' or user_reply.startswith('del_'):
-        user_state = 'HANDLE_CART'
-    elif user_reply == 'Оплатить':
-        user_state = 'WAITING_EMAIL'
     else:
         user_state = db.get(chat_id).decode('utf-8')
 
