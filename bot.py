@@ -103,10 +103,10 @@ def handle_menu(update: Update, context: CallbackContext) -> str:
     if user_reply == 'Корзина':
         user_cart = get_user_cart(store_access_token, chat_id)
         message, reply_markup = prepare_message_and_buttons_for_cart(user_cart)
-        bot.delete_message(chat_id=chat_id,
-                           message_id=query.message.message_id)
         bot.send_message(chat_id=chat_id, text=message,
                          reply_markup=reply_markup)
+        bot.delete_message(chat_id=chat_id,
+                           message_id=query.message.message_id)
         return 'HANDLE_CART'
     raw_products, inventories = get_products(store_access_token)
     products = parse_products(raw_products, inventories)
@@ -132,10 +132,10 @@ def handle_menu(update: Update, context: CallbackContext) -> str:
         [InlineKeyboardButton('Назад', callback_data='Назад')]
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
-    bot.delete_message(chat_id=chat_id,
-                       message_id=query.message.message_id)
     bot.send_photo(chat_id=chat_id, photo=image, caption=message,
                    reply_markup=reply_markup)
+    bot.delete_message(chat_id=chat_id,
+                       message_id=query.message.message_id)
     return 'HANDLE_DESCRIPTION'
 
 
@@ -156,21 +156,20 @@ def handle_description(update: Update, context: CallbackContext) -> str:
     elif user_reply == 'Корзина':
         user_cart = get_user_cart(store_access_token, chat_id)
         message, reply_markup = prepare_message_and_buttons_for_cart(user_cart)
-        bot.delete_message(chat_id=chat_id,
-                           message_id=query.message.message_id)
         bot.send_message(chat_id=chat_id, text=message,
                          reply_markup=reply_markup)
+        bot.delete_message(chat_id=chat_id,
+                           message_id=query.message.message_id)
         return 'HANDLE_CART'
     else:
         raw_products, inventories = get_products(store_access_token)
         products = parse_products(raw_products, inventories)
         keyboard = get_menu_button(products)
         reply_markup = InlineKeyboardMarkup(keyboard)
-
-        bot.delete_message(chat_id=chat_id,
-                           message_id=query.message.message_id)
         bot.send_message(text='Пожалуйста, выберите товар!', chat_id=chat_id,
                          reply_markup=reply_markup)
+        bot.delete_message(chat_id=chat_id,
+                           message_id=query.message.message_id)
         return 'HANDLE_MENU'
 
 
@@ -187,20 +186,20 @@ def handle_cart(update: Update, context: CallbackContext) -> str:
         delete_cart_product(store_access_token, chat_id, product_id)
         user_cart = get_user_cart(store_access_token, chat_id)
         message, reply_markup = prepare_message_and_buttons_for_cart(user_cart)
-        bot.delete_message(chat_id=chat_id,
-                           message_id=query.message.message_id)
         bot.send_message(chat_id=chat_id, text=message,
                          reply_markup=reply_markup)
+        bot.delete_message(chat_id=chat_id,
+                           message_id=query.message.message_id)
         return 'HANDLE_CART'
     elif user_reply == 'В меню':
         raw_products, inventories = get_products(store_access_token)
         products = parse_products(raw_products, inventories)
         keyboard = get_menu_button(products)
         reply_markup = InlineKeyboardMarkup(keyboard)
-        bot.delete_message(chat_id=chat_id,
-                           message_id=query.message.message_id)
         bot.send_message(text='Пожалуйста, выберите товар!',
                          chat_id=chat_id, reply_markup=reply_markup)
+        bot.delete_message(chat_id=chat_id,
+                           message_id=query.message.message_id)
         return 'HANDLE_MENU'
     else:
         message = 'Пришлите, пожалуйста, ваш email'
@@ -213,16 +212,16 @@ def waiting_email(update: Update, context: CallbackContext) -> str:
     query = update.callback_query
     if query and query.data == 'Неверно':
         message = 'Пришлите, пожалуйста, ваш email'
+        bot.send_message(text=message, chat_id=query.message.chat_id)
         bot.delete_message(chat_id=query.message.chat_id,
                            message_id=query.message.message_id)
-        bot.send_message(text=message, chat_id=query.message.chat_id)
         return 'WAITING_EMAIL'
     elif query and query.data == 'Верно':
         store_access_token = context.bot_data['store_access_token']
         chat_id = query.message.chat_id
+        bot.send_message(text='Ожидайте уведомление на почте', chat_id=chat_id)
         bot.delete_message(chat_id=chat_id,
                            message_id=query.message.message_id)
-        bot.send_message(text='Ожидайте уведомление на почте', chat_id=chat_id)
         if not _database.get(f'customer_{chat_id}'):
             first_name = name if (name := query.from_user.first_name) else ''
             last_name = name if (name := query.from_user.last_name) else ''
