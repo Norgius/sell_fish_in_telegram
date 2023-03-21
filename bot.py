@@ -3,7 +3,9 @@ from textwrap import dedent
 
 import redis
 import requests
+from validate_email import validate_email
 from environs import Env
+from telegram import ParseMode
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Filters, Updater, CallbackContext
 from telegram.ext import CallbackQueryHandler, CommandHandler, MessageHandler
@@ -18,17 +20,18 @@ _database = None
 
 def parse_products(raw_products: list, inventories: list) -> dict:
     products = {}
-    for raw_product, inventory in zip(raw_products, inventories):
+    for raw_product in raw_products:
         attributes = raw_product.get('attributes')
         product = {
             'name': attributes.get('name'),
             'description': attributes.get('description'),
             'price': attributes.get('price').get('USD').get('amount') / 100,
-            'stock': inventory.get('available'),
             'image_id': raw_product.get('relationships')
-                                   .get('main_image').get('data').get('id')
+            .get('main_image').get('data').get('id')
             }
         products[raw_product.get('id')] = product
+    for inventory in inventories:
+        products.get(inventory.get('id'))['stock'] = inventory.get('available')
     return products
 
 
@@ -43,6 +46,15 @@ def get_menu_buttons(products: dict) -> list:
     return keyboard
 
 
+def get_product_quantity_in_cart(product_id, user_cart):
+    products = user_cart.get('data')
+    if products:
+        for product in products:
+            if product_id == product.get('product_id'):
+                return int(product.get('quantity'))
+    return 0
+
+
 def prepare_cart_buttons_and_message(user_cart):
     products = user_cart.get('data')
     message = ''
@@ -55,10 +67,11 @@ def prepare_cart_buttons_and_message(user_cart):
             product_total_cost = product_quantity * float(product_price[1::])
 
             message += dedent(f'''
-            {product.get("name")}
+            <b>{product.get("name")}</b>
+
             {product.get("description")}
-            {product_price} за кг
-            {product_quantity}кг в корзине за ${product_total_cost:.2f}
+            <u>{product_price}</u> за кг
+            <u>{product_quantity}кг</u> в корзине за <u>${product_total_cost:.2f}</u>
             ''')
             button = [InlineKeyboardButton(
                 f'Убрать из корзины {product.get("name")}',
@@ -68,7 +81,8 @@ def prepare_cart_buttons_and_message(user_cart):
             keyboard.append(button)
         cart_total_cost = user_cart.get('meta').get('display_price')\
             .get('without_tax').get('formatted')
-        message += f'\nОбщая стоимость: {cart_total_cost}'
+        message += dedent(f'''
+        <b>Общая стоимость:</b> <u>{cart_total_cost}</u>''')
     else:
         message = 'Ваша корзина пуста'
 
@@ -77,6 +91,30 @@ def prepare_cart_buttons_and_message(user_cart):
         keyboard.append(
             [InlineKeyboardButton('Оплатить', callback_data='Оплатить')]
         )
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    return message, reply_markup
+
+
+def prepare_description_buttons_and_message(product_data, product_quantity):
+    message = dedent(f'''
+    <b>{product_data.get('name')}</b>
+
+    <u>{product_data.get('price'):.2f}$</u> за 1 кг
+    <u>{product_data.get('stock')}кг</u> на складе
+
+    {product_data.get('description')}
+    ''')
+    if product_quantity:
+        message += dedent(f'''
+        В вашей <b>корзине</b> <u>{product_quantity} кг</u> данного товара
+        ''')
+    keyboard = [
+        [InlineKeyboardButton('1 кг', callback_data='1 кг'),
+         InlineKeyboardButton('5 кг', callback_data='5 кг'),
+         InlineKeyboardButton('10 кг', callback_data='10 кг')],
+        [InlineKeyboardButton('Корзина', callback_data='Корзина')],
+        [InlineKeyboardButton('Назад', callback_data='Назад')]
+    ]
     reply_markup = InlineKeyboardMarkup(keyboard)
     return message, reply_markup
 
@@ -100,11 +138,11 @@ def handle_menu(update: Update, context: CallbackContext) -> str:
     chat_id = query.message.chat_id
     user_reply = query.data
     store_access_token = context.bot_data['store_access_token']
+    user_cart = get_user_cart(store_access_token, chat_id)
     if user_reply == 'Корзина':
-        user_cart = get_user_cart(store_access_token, chat_id)
         message, reply_markup = prepare_cart_buttons_and_message(user_cart)
         bot.send_message(chat_id=chat_id, text=message,
-                         reply_markup=reply_markup)
+                         reply_markup=reply_markup, parse_mode=ParseMode.HTML)
         bot.delete_message(chat_id=chat_id,
                            message_id=query.message.message_id)
         return 'HANDLE_CART'
@@ -112,28 +150,16 @@ def handle_menu(update: Update, context: CallbackContext) -> str:
     products = parse_products(raw_products, inventories)
     context.bot_data['product_id'] = user_reply
     product_data = products.get(user_reply)
+    context.bot_data[f'{user_reply}_data'] = product_data
+
     image_id = product_data.get('image_id')
-    store_access_token = context.bot_data['store_access_token']
-
     image = get_product_image(store_access_token, image_id)
-    message = dedent(f'''
-    {product_data.get('name')}
+    quantity_in_cart = get_product_quantity_in_cart(user_reply, user_cart)
+    message, reply_markup = prepare_description_buttons_and_message(
+        product_data, quantity_in_cart)
 
-    {product_data.get('price'):.2f}$ за 1 кг
-    {product_data.get('stock')}кг на складе
-
-    {product_data.get('description')}
-    ''')
-    keyboard = [
-        [InlineKeyboardButton('1 кг', callback_data='1 кг'),
-         InlineKeyboardButton('5 кг', callback_data='5 кг'),
-         InlineKeyboardButton('10 кг', callback_data='10 кг')],
-        [InlineKeyboardButton('Корзина', callback_data='Корзина')],
-        [InlineKeyboardButton('Назад', callback_data='Назад')]
-    ]
-    reply_markup = InlineKeyboardMarkup(keyboard)
     bot.send_photo(chat_id=chat_id, photo=image, caption=message,
-                   reply_markup=reply_markup)
+                   reply_markup=reply_markup, parse_mode=ParseMode.HTML)
     bot.delete_message(chat_id=chat_id,
                        message_id=query.message.message_id)
     return 'HANDLE_DESCRIPTION'
@@ -149,15 +175,28 @@ def handle_description(update: Update, context: CallbackContext) -> str:
     store_access_token = context.bot_data['store_access_token']
     if user_reply in ['1 кг', '5 кг', '10 кг']:
         product_id = context.bot_data['product_id']
+        product_data = context.bot_data[f'{product_id}_data']
         quantity = int(user_reply.split()[0])
-        put_product_in_cart(store_access_token, product_id,
-                            quantity, chat_id)
+        user_cart = put_product_in_cart(store_access_token, product_id,
+                                        quantity, chat_id)
+        bot.answer_callback_query(text='Товар добавлен к корзину',
+                                  callback_query_id=query.id,)
+
+        quantity_in_cart = get_product_quantity_in_cart(product_id, user_cart)
+        message, reply_markup = prepare_description_buttons_and_message(
+            product_data, quantity_in_cart)
+        image_id = product_data.get('image_id')
+        image = get_product_image(store_access_token, image_id)
+        bot.send_photo(chat_id=chat_id, photo=image, caption=message,
+                       reply_markup=reply_markup, parse_mode=ParseMode.HTML)
+        bot.delete_message(chat_id=chat_id,
+                           message_id=query.message.message_id)
         return 'HANDLE_DESCRIPTION'
     elif user_reply == 'Корзина':
         user_cart = get_user_cart(store_access_token, chat_id)
         message, reply_markup = prepare_cart_buttons_and_message(user_cart)
         bot.send_message(chat_id=chat_id, text=message,
-                         reply_markup=reply_markup)
+                         reply_markup=reply_markup, parse_mode=ParseMode.HTML)
         bot.delete_message(chat_id=chat_id,
                            message_id=query.message.message_id)
         return 'HANDLE_CART'
@@ -187,7 +226,7 @@ def handle_cart(update: Update, context: CallbackContext) -> str:
         user_cart = get_user_cart(store_access_token, chat_id)
         message, reply_markup = prepare_cart_buttons_and_message(user_cart)
         bot.send_message(chat_id=chat_id, text=message,
-                         reply_markup=reply_markup)
+                         reply_markup=reply_markup, parse_mode=ParseMode.HTML)
         bot.delete_message(chat_id=chat_id,
                            message_id=query.message.message_id)
         return 'HANDLE_CART'
@@ -202,8 +241,9 @@ def handle_cart(update: Update, context: CallbackContext) -> str:
                            message_id=query.message.message_id)
         return 'HANDLE_MENU'
     else:
-        message = 'Пришлите, пожалуйста, ваш email'
-        bot.send_message(text=message, chat_id=query.message.chat_id)
+        message = 'Пришлите, пожалуйста, ваш <b>email</b>'
+        bot.send_message(text=message, chat_id=query.message.chat_id,
+                         parse_mode=ParseMode.HTML)
         return 'WAITING_EMAIL'
 
 
@@ -211,14 +251,26 @@ def waiting_email(update: Update, context: CallbackContext) -> str:
     bot = context.bot
     query = update.callback_query
     if query and query.data == 'Неверно':
-        message = 'Пришлите, пожалуйста, ваш email'
-        bot.send_message(text=message, chat_id=query.message.chat_id)
+        message = 'Пришлите, пожалуйста, ваш <b>email</b>'
+        bot.send_message(text=message, chat_id=query.message.chat_id,
+                         parse_mode=ParseMode.HTML)
         bot.delete_message(chat_id=query.message.chat_id,
                            message_id=query.message.message_id)
         return 'WAITING_EMAIL'
     elif query and query.data == 'Верно':
         store_access_token = context.bot_data['store_access_token']
         chat_id = query.message.chat_id
+        customer_email = _database.get(f'email_{chat_id}').decode()
+        if not validate_email(customer_email):
+            text = dedent(f'''
+            Данный <b>email: {customer_email}</b> не является настоящим.
+            Пожалуйста, введите актуальную почту
+            ''')
+            bot.send_message(text=text, chat_id=chat_id,
+                             parse_mode=ParseMode.HTML)
+            bot.delete_message(chat_id=chat_id,
+                               message_id=query.message.message_id)
+            return 'WAITING_EMAIL'
         bot.send_message(text='Ожидайте уведомление на почте', chat_id=chat_id)
         bot.delete_message(chat_id=chat_id,
                            message_id=query.message.message_id)
@@ -227,7 +279,6 @@ def waiting_email(update: Update, context: CallbackContext) -> str:
             last_name = name if (name := query.from_user.last_name) else ''
             customer_name = (first_name + ' ' + last_name).strip()
             store_access_token = context.bot_data['store_access_token']
-            customer_email = _database.get(f'email_{chat_id}').decode()
             customer_id = create_customer(store_access_token, customer_name,
                                           customer_email)
             _database.set(f'customer_{chat_id}', customer_id)
@@ -242,7 +293,7 @@ def waiting_email(update: Update, context: CallbackContext) -> str:
     else:
         email = update.message.text
         message = dedent(f'''
-        Вы прислали мне эту почту: {email}
+        Вы прислали мне эту почту: <b>{email}</b>
         Всё верно?
         ''')
         chat_id = update.effective_chat.id
@@ -250,7 +301,8 @@ def waiting_email(update: Update, context: CallbackContext) -> str:
         keyboard = [[InlineKeyboardButton('Верно', callback_data='Верно')],
                     [InlineKeyboardButton('Неверно', callback_data='Неверно')]]
         reply_markup = InlineKeyboardMarkup(keyboard)
-        update.message.reply_text(text=message, reply_markup=reply_markup)
+        update.message.reply_text(text=message, reply_markup=reply_markup,
+                                  parse_mode=ParseMode.HTML)
         return 'WAITING_EMAIL'
 
 
