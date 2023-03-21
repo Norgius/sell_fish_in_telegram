@@ -260,12 +260,13 @@ def handle_users_reply(update: Update, context: CallbackContext) -> None:
     env.read_env()
     client_secret = env.str('ELASTICPATH_CLIENT_SECRET')
     client_id = env.str('ELASTICPATH_CLIENT_ID')
+    token_lifetime = env.int('TOKEN_LIFETIME')
     try:
         db = get_database_connection(env)
         store_access_token = db.get('store_access_token')
         if not store_access_token:
             store_access_token = get_access_token(_database, client_secret,
-                                                  client_id)
+                                                  client_id, token_lifetime)
         else:
             store_access_token = store_access_token.decode('utf-8')
         context.bot_data['store_access_token'] = store_access_token
