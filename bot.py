@@ -82,7 +82,9 @@ def prepare_message_and_buttons_for_cart(user_cart):
 
 
 def start(update: Update, context: CallbackContext) -> str:
-    products = context.bot_data['products']
+    store_access_token = context.bot_data['store_access_token']
+    raw_products, inventories = get_products(store_access_token)
+    products = parse_products(raw_products, inventories)
     keyboard = get_menu_button(products)
     reply_markup = InlineKeyboardMarkup(keyboard)
     update.message.reply_text(text='Пожалуйста, выберите товар!',
@@ -106,8 +108,10 @@ def handle_menu(update: Update, context: CallbackContext) -> str:
         bot.send_message(chat_id=chat_id, text=message,
                          reply_markup=reply_markup)
         return 'HANDLE_CART'
+    raw_products, inventories = get_products(store_access_token)
+    products = parse_products(raw_products, inventories)
     context.bot_data['product_id'] = user_reply
-    product_data = context.bot_data['products'].get(user_reply)
+    product_data = products.get(user_reply)
     image_id = product_data.get('image_id')
     store_access_token = context.bot_data['store_access_token']
 
@@ -143,7 +147,6 @@ def handle_description(update: Update, context: CallbackContext) -> str:
     user_reply = query.data
     chat_id = query.message.chat_id
     store_access_token = context.bot_data['store_access_token']
-    products = context.bot_data['products']
     if user_reply in ['1 кг', '5 кг', '10 кг']:
         product_id = context.bot_data['product_id']
         quantity = int(user_reply.split()[0])
@@ -159,6 +162,8 @@ def handle_description(update: Update, context: CallbackContext) -> str:
                          reply_markup=reply_markup)
         return 'HANDLE_CART'
     else:
+        raw_products, inventories = get_products(store_access_token)
+        products = parse_products(raw_products, inventories)
         keyboard = get_menu_button(products)
         reply_markup = InlineKeyboardMarkup(keyboard)
 
@@ -188,7 +193,8 @@ def handle_cart(update: Update, context: CallbackContext) -> str:
                          reply_markup=reply_markup)
         return 'HANDLE_CART'
     elif user_reply == 'В меню':
-        products = context.bot_data['products']
+        raw_products, inventories = get_products(store_access_token)
+        products = parse_products(raw_products, inventories)
         keyboard = get_menu_button(products)
         reply_markup = InlineKeyboardMarkup(keyboard)
         bot.delete_message(chat_id=chat_id,
@@ -213,7 +219,6 @@ def waiting_email(update: Update, context: CallbackContext) -> str:
         return 'WAITING_EMAIL'
     elif query and query.data == 'Верно':
         store_access_token = context.bot_data['store_access_token']
-        products = context.bot_data['products']
         chat_id = query.message.chat_id
         bot.delete_message(chat_id=chat_id,
                            message_id=query.message.message_id)
@@ -228,6 +233,8 @@ def waiting_email(update: Update, context: CallbackContext) -> str:
                                           customer_email)
             _database.set(f'customer_{chat_id}', customer_id)
         delete_all_cart_products(store_access_token, chat_id)
+        raw_products, inventories = get_products(store_access_token)
+        products = parse_products(raw_products, inventories)
         keyboard = get_menu_button(products)
         reply_markup = InlineKeyboardMarkup(keyboard)
         bot.send_message(text='Пожалуйста, выберите товар!', chat_id=chat_id,
@@ -261,9 +268,6 @@ def handle_users_reply(update: Update, context: CallbackContext) -> None:
                                                   client_id)
         else:
             store_access_token = store_access_token.decode('utf-8')
-        raw_products, inventories = get_products(store_access_token)
-        products = parse_products(raw_products, inventories)
-        context.bot_data['products'] = products
         context.bot_data['store_access_token'] = store_access_token
     except requests.exceptions.HTTPError as err:
         logger.warning(f'Ошибка в работе api.moltin.com\n{err}\n')
