@@ -48,11 +48,11 @@ def is_number(possible_number):
 def get_menu_buttons(products: dict, products_per_page: int,
                      pages_number: int, page: int = 0) -> list:
     keyboard = []
-    page_range = (range(page * products_per_page, page *
-                        products_per_page + products_per_page))
+    pages_range = (range(page * products_per_page, page *
+                         products_per_page + products_per_page))
     product_number = 0
     for product_id, product in products.items():
-        if product_number in page_range:
+        if product_number in pages_range:
             button = [
                 InlineKeyboardButton(product.get('name'),
                                      callback_data=product_id)
