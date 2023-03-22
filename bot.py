@@ -12,9 +12,9 @@ from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Filters, Updater, CallbackContext
 from telegram.ext import CallbackQueryHandler, CommandHandler, MessageHandler
 
-from api_functions import (get_access_token, get_products, get_product_image,
-                           put_product_in_cart, get_user_cart, create_customer,
-                           delete_cart_product, delete_all_cart_products)
+from moltin_api import (get_access_token, get_products, get_product_image,
+                        put_product_in_cart, get_user_cart, create_customer,
+                        delete_cart_product, delete_all_cart_products)
 
 logger = logging.getLogger(__name__)
 _database = None
