@@ -313,8 +313,9 @@ def handle_users_reply(update: Update, context: CallbackContext,
     try:
         store_access_token = _database.get('store_access_token')
         if not store_access_token:
-            store_access_token = get_access_token(_database, client_secret,
-                                                  client_id, token_lifetime)
+            store_access_token = get_access_token(client_secret, client_id)
+            _database.setex('store_access_token', token_lifetime,
+                            store_access_token)
         else:
             store_access_token = store_access_token.decode('utf-8')
         context.bot_data['store_access_token'] = store_access_token

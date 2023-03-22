@@ -1,16 +1,13 @@
 import requests
-import redis
 
 
-def get_access_token(_database: redis.Redis, client_secret: str,
-                     client_id: str, token_lifetime: int) -> str:
+def get_access_token(client_secret: str, client_id: str) -> str:
     url = 'https://api.moltin.com/oauth/access_token'
     data = {'grant_type': 'client_credentials',
             'client_secret': client_secret, 'client_id': client_id}
     response = requests.post(url, data=data)
     response.raise_for_status()
     access_token = response.json().get('access_token')
-    _database.setex('store_access_token', token_lifetime, access_token)
     return access_token
 
 
