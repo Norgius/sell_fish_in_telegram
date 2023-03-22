@@ -1,4 +1,5 @@
 import logging
+from math import ceil
 from textwrap import dedent
 from functools import partial
 
@@ -36,13 +37,32 @@ def parse_products(raw_products: list, inventories: list) -> dict:
     return products
 
 
-def get_menu_buttons(products: dict) -> list:
+def is_number(possible_number):
+    try:
+        int(possible_number)
+        return True
+    except ValueError:
+        return False
+
+
+def get_menu_buttons(products: dict, products_per_page: int,
+                     pages_number: int, page: int = 0) -> list:
     keyboard = []
+    page_range = (range(page * products_per_page, page *
+                        products_per_page + products_per_page))
+    product_number = 0
     for product_id, product in products.items():
-        button = [
-            InlineKeyboardButton(product.get('name'), callback_data=product_id)
-                  ]
-        keyboard.append(button)
+        if product_number in page_range:
+            button = [
+                InlineKeyboardButton(product.get('name'),
+                                     callback_data=product_id)
+                    ]
+            keyboard.append(button)
+        product_number += 1
+    if pages_number > 1:
+        keyboard.append([InlineKeyboardButton('<', callback_data=page - 1),
+                         InlineKeyboardButton('>', callback_data=page + 1)]
+                        )
     keyboard.append([InlineKeyboardButton('Корзина', callback_data='Корзина')])
     return keyboard
 
@@ -122,9 +142,11 @@ def prepare_description_buttons_and_message(product_data, product_quantity):
 
 def start(update: Update, context: CallbackContext) -> str:
     store_access_token = context.bot_data['store_access_token']
+    products_per_page = context.bot_data['products_per_page']
     raw_products, inventories = get_products(store_access_token)
     products = parse_products(raw_products, inventories)
-    keyboard = get_menu_buttons(products)
+    pages_number = ceil(len(products) / products_per_page)
+    keyboard = get_menu_buttons(products, products_per_page, pages_number)
     reply_markup = InlineKeyboardMarkup(keyboard)
     update.message.reply_text(text='Пожалуйста, выберите товар!',
                               reply_markup=reply_markup)
@@ -139,6 +161,24 @@ def handle_menu(update: Update, context: CallbackContext) -> str:
     chat_id = query.message.chat_id
     user_reply = query.data
     store_access_token = context.bot_data['store_access_token']
+    if is_number(user_reply):
+        user_reply = int(user_reply)
+        products_per_page = context.bot_data['products_per_page']
+        raw_products, inventories = get_products(store_access_token)
+        products = parse_products(raw_products, inventories)
+
+        pages_number = ceil(len(products) / products_per_page)
+        user_reply = 0 if user_reply >= pages_number else user_reply
+        user_reply = pages_number - 1 if user_reply < 0 else user_reply
+
+        keyboard = get_menu_buttons(products, products_per_page,
+                                    pages_number, user_reply)
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        bot.send_message(text='Пожалуйста, выберите товар!', chat_id=chat_id,
+                         reply_markup=reply_markup)
+        bot.delete_message(chat_id=chat_id,
+                           message_id=query.message.message_id)
+        return 'HANDLE_MENU'
     user_cart = get_user_cart(store_access_token, chat_id)
     if user_reply == 'Корзина':
         message, reply_markup = prepare_cart_buttons_and_message(user_cart)
@@ -204,8 +244,11 @@ def handle_description(update: Update, context: CallbackContext) -> str:
     else:
         raw_products, inventories = get_products(store_access_token)
         products = parse_products(raw_products, inventories)
-        keyboard = get_menu_buttons(products)
+        products_per_page = context.bot_data['products_per_page']
+        pages_number = ceil(len(products) / products_per_page)
+        keyboard = get_menu_buttons(products, products_per_page, pages_number)
         reply_markup = InlineKeyboardMarkup(keyboard)
+
         bot.send_message(text='Пожалуйста, выберите товар!', chat_id=chat_id,
                          reply_markup=reply_markup)
         bot.delete_message(chat_id=chat_id,
@@ -234,10 +277,13 @@ def handle_cart(update: Update, context: CallbackContext) -> str:
     elif user_reply == 'В меню':
         raw_products, inventories = get_products(store_access_token)
         products = parse_products(raw_products, inventories)
-        keyboard = get_menu_buttons(products)
+        products_per_page = context.bot_data['products_per_page']
+        pages_number = ceil(len(products) / products_per_page)
+        keyboard = get_menu_buttons(products, products_per_page, pages_number)
         reply_markup = InlineKeyboardMarkup(keyboard)
-        bot.send_message(text='Пожалуйста, выберите товар!',
-                         chat_id=chat_id, reply_markup=reply_markup)
+
+        bot.send_message(text='Пожалуйста, выберите товар!', chat_id=chat_id,
+                         reply_markup=reply_markup)
         bot.delete_message(chat_id=chat_id,
                            message_id=query.message.message_id)
         return 'HANDLE_MENU'
@@ -284,10 +330,14 @@ def waiting_email(update: Update, context: CallbackContext) -> str:
                                           customer_email)
             _database.set(f'customer_{chat_id}', customer_id)
         delete_all_cart_products(store_access_token, chat_id)
+
         raw_products, inventories = get_products(store_access_token)
         products = parse_products(raw_products, inventories)
-        keyboard = get_menu_buttons(products)
+        products_per_page = context.bot_data['products_per_page']
+        pages_number = ceil(len(products) / products_per_page)
+        keyboard = get_menu_buttons(products, products_per_page, pages_number)
         reply_markup = InlineKeyboardMarkup(keyboard)
+
         bot.send_message(text='Пожалуйста, выберите товар!', chat_id=chat_id,
                          reply_markup=reply_markup)
         return 'HANDLE_MENU'
@@ -309,7 +359,7 @@ def waiting_email(update: Update, context: CallbackContext) -> str:
 
 def handle_users_reply(update: Update, context: CallbackContext,
                        client_secret: str, client_id: str,
-                       token_lifetime: int) -> None:
+                       token_lifetime: int, products_per_page: int) -> None:
     try:
         store_access_token = _database.get('store_access_token')
         if not store_access_token:
@@ -318,6 +368,7 @@ def handle_users_reply(update: Update, context: CallbackContext,
                             store_access_token)
         else:
             store_access_token = store_access_token.decode('utf-8')
+        context.bot_data['products_per_page'] = products_per_page
         context.bot_data['store_access_token'] = store_access_token
     except requests.exceptions.HTTPError as err:
         logger.warning(f'Ошибка в работе api.moltin.com\n{err}\n')
@@ -367,6 +418,7 @@ def main():
     client_secret = env.str('ELASTICPATH_CLIENT_SECRET')
     client_id = env.str('ELASTICPATH_CLIENT_ID')
     token_lifetime = env.int('TOKEN_LIFETIME')
+    products_per_page = env.int('PRODUCTS_PER_PAGE', 6)
     database_password = env.str("REDIS_PASSWORD")
     database_host = env.str("REDIS_HOST")
     database_port = env.int("REDIS_PORT")
@@ -383,17 +435,20 @@ def main():
     dispatcher = updater.dispatcher
     dispatcher.add_handler(CallbackQueryHandler(
         partial(handle_users_reply, client_secret=client_secret,
-                client_id=client_id, token_lifetime=token_lifetime))
+                client_id=client_id, token_lifetime=token_lifetime,
+                products_per_page=products_per_page))
                            )
     dispatcher.add_handler(MessageHandler(
         Filters.text,
         partial(handle_users_reply, client_secret=client_secret,
-                client_id=client_id, token_lifetime=token_lifetime))
+                client_id=client_id, token_lifetime=token_lifetime,
+                products_per_page=products_per_page))
                            )
     dispatcher.add_handler(CommandHandler(
         'start',
         partial(handle_users_reply, client_secret=client_secret,
-                client_id=client_id, token_lifetime=token_lifetime))
+                client_id=client_id, token_lifetime=token_lifetime,
+                products_per_page=products_per_page))
                            )
     logger.info('Телеграм бот запущен')
     updater.start_polling()
