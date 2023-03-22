@@ -1,5 +1,6 @@
 import logging
 from textwrap import dedent
+from functools import partial
 
 import redis
 import requests
@@ -306,15 +307,11 @@ def waiting_email(update: Update, context: CallbackContext) -> str:
         return 'WAITING_EMAIL'
 
 
-def handle_users_reply(update: Update, context: CallbackContext) -> None:
-    env = Env()
-    env.read_env()
-    client_secret = env.str('ELASTICPATH_CLIENT_SECRET')
-    client_id = env.str('ELASTICPATH_CLIENT_ID')
-    token_lifetime = env.int('TOKEN_LIFETIME')
+def handle_users_reply(update: Update, context: CallbackContext,
+                       client_secret: str, client_id: str,
+                       token_lifetime: int) -> None:
     try:
-        db = get_database_connection(env)
-        store_access_token = db.get('store_access_token')
+        store_access_token = _database.get('store_access_token')
         if not store_access_token:
             store_access_token = get_access_token(_database, client_secret,
                                                   client_id, token_lifetime)
@@ -335,7 +332,7 @@ def handle_users_reply(update: Update, context: CallbackContext) -> None:
     if user_reply == '/start':
         user_state = 'START'
     else:
-        user_state = db.get(chat_id).decode('utf-8')
+        user_state = _database.get(chat_id).decode('utf-8')
 
     states_functions = {
         'START': start,
@@ -347,19 +344,17 @@ def handle_users_reply(update: Update, context: CallbackContext) -> None:
     state_handler = states_functions[user_state]
     try:
         next_state = state_handler(update, context)
-        db.set(chat_id, next_state)
+        _database.set(chat_id, next_state)
     except requests.exceptions.HTTPError as err:
         logger.warning(f'Ошибка в работе api.moltin.com\n{err}\n')
     except Exception as err:
         logger.warning(f'Ошибка в работе телеграм бота\n{err}\n')
 
 
-def get_database_connection(env: Env) -> redis.Redis:
+def get_database_connection(database_password: str, database_host: str,
+                            database_port: int) -> redis.Redis:
     global _database
     if _database is None:
-        database_password = env.str("REDIS_PASSWORD")
-        database_host = env.str("REDIS_HOST")
-        database_port = env.int("REDIS_PORT")
         _database = redis.Redis(host=database_host, port=database_port,
                                 password=database_password)
     return _database
@@ -368,19 +363,37 @@ def get_database_connection(env: Env) -> redis.Redis:
 def main():
     env = Env()
     env.read_env()
-
+    client_secret = env.str('ELASTICPATH_CLIENT_SECRET')
+    client_id = env.str('ELASTICPATH_CLIENT_ID')
+    token_lifetime = env.int('TOKEN_LIFETIME')
+    database_password = env.str("REDIS_PASSWORD")
+    database_host = env.str("REDIS_HOST")
+    database_port = env.int("REDIS_PORT")
     logging.basicConfig(
         format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
         level=logging.INFO
     )
     logger.setLevel(logging.INFO)
 
+    _ = get_database_connection(database_password, database_host,
+                                database_port)
     tg_token = env.str('FISH_SHOP_BOT_TG_TOKEN')
     updater = Updater(tg_token)
     dispatcher = updater.dispatcher
-    dispatcher.add_handler(CallbackQueryHandler(handle_users_reply))
-    dispatcher.add_handler(MessageHandler(Filters.text, handle_users_reply))
-    dispatcher.add_handler(CommandHandler('start', handle_users_reply))
+    dispatcher.add_handler(CallbackQueryHandler(
+        partial(handle_users_reply, client_secret=client_secret,
+                client_id=client_id, token_lifetime=token_lifetime))
+                           )
+    dispatcher.add_handler(MessageHandler(
+        Filters.text,
+        partial(handle_users_reply, client_secret=client_secret,
+                client_id=client_id, token_lifetime=token_lifetime))
+                           )
+    dispatcher.add_handler(CommandHandler(
+        'start',
+        partial(handle_users_reply, client_secret=client_secret,
+                client_id=client_id, token_lifetime=token_lifetime))
+                           )
     logger.info('Телеграм бот запущен')
     updater.start_polling()
     updater.idle()
